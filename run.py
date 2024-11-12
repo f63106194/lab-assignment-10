@@ -4,34 +4,72 @@ from bs4 import BeautifulSoup
 import pandas as pd
 import re
 
-
 def get_president_terms():
-    """
-    Scrapes the Wikipedia page for U.S. Presidents and constructs a dictionary
-    with each president's name as the key, and a list with their political party and
-    number of terms served as the values. Saves the result in JSON format.
+    url = "https://en.wikipedia.org/wiki/List_of_presidents_of_the_United_States"
+    response = requests.get(url)
+    
+    if response.status_code != 200:
+        raise Exception("Failed to open.")
+    
+    soup = BeautifulSoup(response.content, 'html.parser')
+    table = soup.find('table', {'class': 'wikitable'})
 
-    :return: None (data saved in presidents_terms.json)
-    """
-    pass
+    presidents_data = {}
+
+    for row in table.find_all('tr')[1:]:  
+        cells = row.find_all('td')
+        
+        president_name = cells[1].text.strip()
+        president_name = re.sub(r'\[.*?\]', '', president_name) 
+        president_name = re.sub(r'\(.*?\)', '', president_name).strip()  
+        term_info = cells[2].text.strip()
+        years = re.findall(r'\d{4}', term_info)  
+        
+        if len(years) >= 2:
+            start_year, end_year = int(years[0]), int(years[1])
+            total_years = end_year - start_year
+        else:
+            total_years = 4  
+        
+        terms_served = (total_years // 4) + (1 if total_years % 4 != 0 else 0)
+
+        political_party = cells[-3].text.strip()
+        political_party = re.sub(r'\[.*?\]', '', political_party)  
+
+        presidents_data[president_name] = [political_party, terms_served]
+        
+    return presidents_data
 
 
 def calculate_approval_changes():
-    """
-    Fetches JSON data from an API endpoint, calculates the difference
-    in approval ratings between the start and end of each president's term,
-    and saves the result as a JSON file.
+    url = "https://dsci.isi.edu/slides/data/presidents"
+    response = requests.get(url)
 
-    :return: None (data saved in approval_changes.json)
-    """
-    pass
+    if response.status_code != 200:
+        print("Failed to open.")
+        return None
+
+    data = response.json().get("presidents", [])
+
+    approval_changes = {}
+
+    for president in data:
+        name = president.get("name")
+        approval_ratings = president.get("approval_ratings", {})
+        start = approval_ratings.get("start")
+        end = approval_ratings.get("end")
+        if name and start is not None and end is not None:
+            approval_changes[name] = end - start
+    
+    return approval_changes
 
 
 def generate_president_dataframe():
-    """
-    Reads data from JSON files created in the previous functions, consolidates
-    the information into a pandas DataFrame, and displays the result.
+    terms_data = get_president_terms()
+    approval_changes = calculate_approval_changes()
 
-    :return: DataFrame containing the presidents, their party, terms, and approval changes
-    """
-    pass
+    terms_df = pd.DataFrame.from_dict(terms_data, orient="index", columns=["Party", "Terms"]).reset_index()
+    terms_df = terms_df.rename(columns={"index": "President"})
+    terms_df["Approval Change"] = terms_df["President"].map(approval_changes)
+
+    return terms_df
